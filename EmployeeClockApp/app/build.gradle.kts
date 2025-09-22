@@ -61,3 +61,4 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics-ktx")
     implementation("com.google.firebase:firebase-firestore-ktx") // ✅ Firestore
 }
+apply(plugin = "com.google.gms.google-services")
