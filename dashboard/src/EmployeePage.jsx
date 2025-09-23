@@ -8,6 +8,8 @@ import {
   updateDoc,
   deleteDoc,
   doc,
+  query,
+  where,
 } from "firebase/firestore";
 
 const EmployeePage = () => {
@@ -41,27 +43,105 @@ const EmployeePage = () => {
     fetchEmployees();
   }, []);
 
+  // ---- NEW: validation + uniqueness checks ----
+  const validateAndCheckUnique = async () => {
+    const { employeeID, firstName, lastName, pin, store } = form;
+
+    // Required fields
+    if (
+      !employeeID.trim() ||
+      !firstName.trim() ||
+      !lastName.trim() ||
+      !pin.trim() ||
+      !store.trim()
+    ) {
+      throw new Error("All fields are required (Employee ID, First, Last, PIN, Store).");
+    }
+
+    // PIN must be exactly 6 digits
+    if (!/^\d{6}$/.test(pin)) {
+      throw new Error("PIN must be exactly 6 digits.");
+    }
+
+    const employeesRef = collection(db, "employees");
+
+    // Unique Employee ID (across active + inactive)
+    {
+      const q1 = query(employeesRef, where("employeeID", "==", employeeID.trim()));
+      const snap1 = await getDocs(q1);
+      if (!snap1.empty) {
+        const conflict = snap1.docs[0];
+        if (!editId || conflict.id !== editId) {
+          throw new Error("Employee ID must be unique.");
+        }
+      }
+    }
+
+    // Unique PIN (across active + inactive)
+    {
+      const q2 = query(employeesRef, where("pin", "==", pin.trim()));
+      const snap2 = await getDocs(q2);
+      if (!snap2.empty) {
+        const conflict = snap2.docs[0];
+        if (!editId || conflict.id !== editId) {
+          throw new Error("PIN must be unique.");
+        }
+      }
+    }
+  };
+  // --------------------------------------------
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (editId) {
-      await updateDoc(doc(db, "employees", editId), form);
-      setEditId(null);
-    } else {
-      await addDoc(collection(db, "employees"), form);
+
+    try {
+      await validateAndCheckUnique();
+
+      if (editId) {
+        await updateDoc(doc(db, "employees", editId), {
+          employeeID: form.employeeID.trim(),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          pin: form.pin.trim(),
+          store: form.store.trim(),
+          employedStatus: !!form.employedStatus,
+        });
+        setEditId(null);
+      } else {
+        await addDoc(collection(db, "employees"), {
+          employeeID: form.employeeID.trim(),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          pin: form.pin.trim(),
+          store: form.store.trim(),
+          employedStatus: !!form.employedStatus,
+        });
+      }
+
+      setForm({
+        employeeID: "",
+        firstName: "",
+        lastName: "",
+        pin: "",
+        store: "",
+        employedStatus: true,
+      });
+      fetchEmployees();
+      alert("Employee saved.");
+    } catch (err) {
+      alert(err.message);
     }
-    setForm({
-      employeeID: "",
-      firstName: "",
-      lastName: "",
-      pin: "",
-      store: "",
-      employedStatus: true,
-    });
-    fetchEmployees();
   };
 
   const handleEdit = (emp) => {
-    setForm(emp);
+    setForm({
+      employeeID: emp.employeeID || "",
+      firstName: emp.firstName || "",
+      lastName: emp.lastName || "",
+      pin: emp.pin || "",
+      store: emp.store || "",
+      employedStatus: emp.employedStatus ?? true,
+    });
     setEditId(emp.id);
   };
 
@@ -74,18 +154,15 @@ const EmployeePage = () => {
       fetchEmployees();
     } catch (err) {
       console.error("Error deleting employee:", err);
+      alert("Delete failed.");
     }
   };
 
-
-  
-  // Apply search filters
+  // Apply search filters (retained)
   const filteredEmployees = employees.filter((emp) => {
     return (
       (search.employeeID === "" ||
-        emp.employeeID
-          ?.toLowerCase()
-          .includes(search.employeeID.toLowerCase())) &&
+        emp.employeeID?.toLowerCase().includes(search.employeeID.toLowerCase())) &&
       (search.firstName === "" ||
         emp.firstName?.toLowerCase().includes(search.firstName.toLowerCase())) &&
       (search.lastName === "" ||
@@ -100,8 +177,6 @@ const EmployeePage = () => {
     );
   });
 
-
-  
   return (
     <div style={{ padding: "20px" }}>
       <h2>Employee Management</h2>
@@ -124,9 +199,12 @@ const EmployeePage = () => {
           onChange={(e) => setForm({ ...form, lastName: e.target.value })}
         />
         <input
-          placeholder="PIN"
+          placeholder="6-digit PIN"
           value={form.pin}
           onChange={(e) => setForm({ ...form, pin: e.target.value })}
+          inputMode="numeric"
+          pattern="\d{6}"
+          title="6 digits"
         />
         <input
           placeholder="Store"
@@ -146,7 +224,7 @@ const EmployeePage = () => {
         <button type="submit">{editId ? "Update" : "Add"}</button>
       </form>
 
-      {/* Search Filters */}
+      {/* Search Filters (retained) */}
       <div style={{ marginBottom: "20px" }}>
         <h3>Search Employees</h3>
         <input
@@ -184,7 +262,7 @@ const EmployeePage = () => {
         </select>
       </div>
 
-      {/* Employee Table */}
+      {/* Employee Table (retained) */}
       <table border="1" cellPadding="5" style={{ width: "100%" }}>
         <thead>
           <tr>
@@ -206,20 +284,20 @@ const EmployeePage = () => {
               <td>{emp.pin}</td>
               <td>{emp.store}</td>
               <td>{emp.employedStatus ? "Active" : "Inactive"}</td>
-                <td>
-                  <button
-                    style={{ marginRight: "10px" }}
-                    onClick={() => handleEdit(emp)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    style={{ color: "red" }}
-                    onClick={() => handleDelete(emp.id)}
-                  >
-                    Delete
-                  </button>
-                </td>
+              <td>
+                <button
+                  style={{ marginRight: "10px" }}
+                  onClick={() => handleEdit(emp)}
+                >
+                  Edit
+                </button>
+                <button
+                  style={{ color: "red" }}
+                  onClick={() => handleDelete(emp.id)}
+                >
+                  Delete
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
