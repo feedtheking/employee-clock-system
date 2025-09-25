@@ -5,12 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-// ✅ Only keep pending_logs table
-@Database(
-    entities = [PendingLogEntity::class],
-    version = 2,               // bump version since schema changed
-    exportSchema = false
-)
+// ✅ Only PendingLogEntity is stored locally
+@Database(entities = [PendingLogEntity::class], version = 1, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun pendingLogDao(): PendingLogDao
@@ -24,10 +20,8 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "employee_clock_db"
-                )
-                    .fallbackToDestructiveMigration() // ✅ auto-drop old logs table
-                    .build()
+                    "clockapp.db" // ✅ one DB file for the app
+                ).build()
                 INSTANCE = instance
                 instance
             }

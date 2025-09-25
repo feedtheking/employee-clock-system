@@ -1,58 +1,62 @@
 package com.ttri.clockapp
 
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.QuerySnapshot
-import com.google.android.gms.tasks.Task
+import kotlinx.coroutines.tasks.await
 
 object FirestoreHelper {
 
     private val db = FirebaseFirestore.getInstance()
 
     // 🔹 Add new employee
-    fun addEmployee(employee: Employee, onResult: (Boolean) -> Unit) {
-        db.collection("employees")
-            .document(employee.pin) // use PIN as unique ID
-            .set(employee)
-            .addOnSuccessListener { onResult(true) }
-            .addOnFailureListener { onResult(false) }
+    suspend fun addEmployee(employee: Employee): Boolean {
+        return try {
+            db.collection("employees")
+                .document(employee.pin) // use PIN as unique ID
+                .set(employee)
+                .await()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 
     // 🔹 Get all employees
-    fun getEmployees(onResult: (List<Employee>) -> Unit) {
-        db.collection("employees")
-            .get()
-            .addOnSuccessListener { result: QuerySnapshot ->
-                val employees = result.toObjects(Employee::class.java)
-                onResult(employees)
-            }
-            .addOnFailureListener {
-                onResult(emptyList())
-            }
+    suspend fun getEmployees(): List<Employee> {
+        return try {
+            val snapshot = db.collection("employees").get().await()
+            snapshot.toObjects(Employee::class.java)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
     }
 
     // 🔹 Get single employee by PIN
-    fun getEmployeeByPin(pin: String, onResult: (Employee?) -> Unit) {
-        db.collection("employees")
-            .document(pin)
-            .get()
-            .addOnSuccessListener { doc ->
-                if (doc.exists()) {
-                    onResult(doc.toObject(Employee::class.java))
-                } else {
-                    onResult(null)
-                }
-            }
-            .addOnFailureListener {
-                onResult(null)
-            }
+    suspend fun getEmployeeByPin(pin: String): Employee? {
+        return try {
+            val doc = db.collection("employees")
+                .document(pin)
+                .get()
+                .await()
+            if (doc.exists()) doc.toObject(Employee::class.java) else null
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     // 🔹 Delete employee
-    fun deleteEmployee(pin: String, onResult: (Boolean) -> Unit) {
-        db.collection("employees")
-            .document(pin)
-            .delete()
-            .addOnSuccessListener { onResult(true) }
-            .addOnFailureListener { onResult(false) }
+    suspend fun deleteEmployee(pin: String): Boolean {
+        return try {
+            db.collection("employees")
+                .document(pin)
+                .delete()
+                .await()
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
     }
 }
