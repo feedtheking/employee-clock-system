@@ -27,7 +27,7 @@ import androidx.work.WorkManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 
-// 🔹 WorkManager trigger function
+// 🔹 Trigger background log sync job
 fun triggerLogSync(context: android.content.Context) {
     val workRequest = OneTimeWorkRequestBuilder<LogSyncWorker>().build()
     WorkManager.getInstance(context).enqueue(workRequest)
@@ -51,14 +51,14 @@ class KioskActivity : AppCompatActivity() {
     // 🔹 Room database
     private lateinit var pendingLogDao: PendingLogDao
 
-    // 🔹 Temp values while waiting for photo capture
+    // 🔹 Temp values for current action
     private var pendingEmployeeID: String? = null
     private var pendingFirstName: String? = null
     private var pendingLastName: String? = null
     private var pendingAction: String? = null
-    private var photoFile: File? = null  // ✅ keep reference to actual file
+    private var photoFile: File? = null  // ✅ always absolute file
 
-    // 🔹 Permission launcher
+    // 🔹 Camera permission launcher
     private val requestCameraPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             if (granted) {
@@ -125,16 +125,16 @@ class KioskActivity : AppCompatActivity() {
             validateAndPrepareLog(pin)
         }
 
-        // sync button (manual → show dialog)
+        // manual sync button
         syncButton.setOnClickListener {
             syncEmployees(manual = true)
-            triggerLogSync(this) // 🔹 force log sync manually too
+            triggerLogSync(this) // also trigger log sync
         }
 
-        // auto sync on login
+        // auto sync once on load
         syncEmployees(manual = false)
 
-        // schedule regular sync every 30 minutes
+        // schedule recurring sync every 30 min
         timer.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
                 runOnUiThread {
@@ -188,7 +188,7 @@ class KioskActivity : AppCompatActivity() {
                 val firstName = doc.getString("firstName") ?: ""
                 val lastName = doc.getString("lastName") ?: ""
 
-                // 🔹 Look back 2 days for last action
+                // 🔹 look back 2 days for last action
                 val tz = TimeZone.getTimeZone("Asia/Manila")
                 val cal = Calendar.getInstance(tz).apply {
                     add(Calendar.DAY_OF_YEAR, -2)
@@ -213,13 +213,13 @@ class KioskActivity : AppCompatActivity() {
                             "clock_out"
                         }
 
-                        // save employee + action for after photo
+                        // save for after photo
                         pendingEmployeeID = employeeID
                         pendingFirstName = firstName
                         pendingLastName = lastName
                         pendingAction = nextAction
 
-                        // 🔹 Check permission before starting camera
+                        // check permission before camera
                         if (ContextCompat.checkSelfPermission(
                                 this,
                                 android.Manifest.permission.CAMERA
@@ -235,12 +235,12 @@ class KioskActivity : AppCompatActivity() {
             .addOnFailureListener { e -> fail("Employee lookup failed: ${e.message}") }
     }
 
-    // 🔹 Launch camera intent
+    // 🔹 launch camera intent
     private fun startCameraCapture() {
-        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val timeStamp = System.currentTimeMillis() // ✅ unified with LogSyncWorker
         val storageDir = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
-        val file = File(storageDir, "PHOTO_${timeStamp}.jpg")
-        photoFile = file  // ✅ keep file reference
+        val file = File(storageDir, "PHOTO_${timeStamp}.jpg") // ✅ consistent filename
+        photoFile = file
         val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
         takePicture.launch(uri)
     }
@@ -249,14 +249,13 @@ class KioskActivity : AppCompatActivity() {
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             if (success) {
                 photoFile?.let { file ->
-                    // 🔹 resize to 640x480 if needed
-                    ImageUtils.resizeImageIfNeeded(file)
+                    ImageUtils.resizeImageIfNeeded(file) // resize to 640x480
 
                     val log = PendingLogEntity(
                         employeeID = pendingEmployeeID ?: "",
                         action = pendingAction ?: "clock_in",
-                        timestamp = System.currentTimeMillis(),
-                        localPhotoPath = file.absolutePath,  // ✅ absolute path
+                        timestamp = System.currentTimeMillis(), // ✅ Long (ms since epoch)
+                        localPhotoPath = file.absolutePath,
                         synced = false
                     )
                     lifecycleScope.launch { pendingLogDao.insert(log) }
@@ -273,7 +272,7 @@ class KioskActivity : AppCompatActivity() {
                             pendingLastName ?: "",
                             pendingAction ?: "clock_in"
                         )
-                        triggerLogSync(this) // optional auto sync
+                        triggerLogSync(this) // auto sync after photo
                     }
                 }
             } else {

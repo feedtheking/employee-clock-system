@@ -5,8 +5,14 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [PendingLogEntity::class], version = 1, exportSchema = false)
+// ✅ Only keep pending_logs table
+@Database(
+    entities = [PendingLogEntity::class],
+    version = 2,               // bump version since schema changed
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
+
     abstract fun pendingLogDao(): PendingLogDao
 
     companion object {
@@ -15,11 +21,15 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                Room.databaseBuilder(
+                val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "kiosk_logs_db"
-                ).build().also { INSTANCE = it }
+                    "employee_clock_db"
+                )
+                    .fallbackToDestructiveMigration() // ✅ auto-drop old logs table
+                    .build()
+                INSTANCE = instance
+                instance
             }
         }
     }

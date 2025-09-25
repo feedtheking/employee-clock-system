@@ -6,7 +6,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
-import com.google.firebase.storage.ktx.storage
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import java.io.File
 import java.text.SimpleDateFormat
@@ -16,7 +16,11 @@ class LogSyncWorker(appContext: Context, workerParams: WorkerParameters) :
     CoroutineWorker(appContext, workerParams) {
 
     private val db = Firebase.firestore
-    private val storage = Firebase.storage
+
+    // ✅ Force Firebase to use the correct storage bucket
+    private val storage = FirebaseStorage.getInstance("gs://employee-kiosk.firebasestorage.app")
+
+    // ✅ Only PendingLogDao is kept
     private val dao = AppDatabase.getDatabase(appContext).pendingLogDao()
 
     override suspend fun doWork(): Result {
@@ -51,9 +55,10 @@ class LogSyncWorker(appContext: Context, workerParams: WorkerParameters) :
                             val fileUri = Uri.fromFile(file)
                             println("   Uploading from Uri: $fileUri")
 
+                            // ✅ Always fresh upload (avoid resumable session 404)
                             storageRef.putFile(fileUri).await()
-                            photoURL = storageRef.downloadUrl.await().toString()
 
+                            photoURL = storageRef.downloadUrl.await().toString()
                             println("✅ Upload successful → $photoURL")
 
                             // ✅ Delete local file after successful upload
@@ -68,7 +73,7 @@ class LogSyncWorker(appContext: Context, workerParams: WorkerParameters) :
                             continue // skip this log, retry later
                         }
                     } else {
-                        // 🚮 Purge broken/missing file logs (old content:// URIs etc.)
+                        // 🚮 Purge broken/missing file logs
                         println("⚠️ [LogSyncWorker] Missing file → purging log: ${log.localPhotoPath}")
                         dao.updateLog(log.copy(synced = true)) // mark as synced so ignored
                         continue
@@ -79,7 +84,8 @@ class LogSyncWorker(appContext: Context, workerParams: WorkerParameters) :
                 val data = hashMapOf(
                     "employeeID" to log.employeeID,
                     "action" to log.action,
-                    "timestamp" to log.timestamp
+                    // ✅ Store as Firestore Timestamp for proper query/sorting
+                    "timestamp" to Date(log.timestamp)
                 )
 
                 if (photoURL != null) {

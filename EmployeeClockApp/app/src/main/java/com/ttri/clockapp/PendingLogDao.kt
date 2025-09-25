@@ -8,7 +8,6 @@ import androidx.room.Update
 
 @Dao
 interface PendingLogDao {
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(log: PendingLogEntity)
 
