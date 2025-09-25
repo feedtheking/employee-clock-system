@@ -1,6 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.ttri.clockapp">
 
+    <!-- Camera permission -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+
+    <!-- Optional storage permission (needed only for older devices ≤ Android 9) -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <!-- Declare camera hardware as optional -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -9,10 +20,21 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.EmployeeClockApp">
 
+        <!-- FileProvider for sharing photo URIs -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <!-- Admin login is the first screen (launcher) -->
         <activity
             android:name=".AdminLoginActivity"
-            android:exported="true">   <!-- 👈 required -->
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -24,5 +46,4 @@
             android:name=".KioskActivity"
             android:exported="false" />
     </application>
-
 </manifest>

@@ -1,26 +1,31 @@
 package com.ttri.clockapp
 
+import com.ttri.clockapp.ImageUtils
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.FileProvider
+import android.widget.TextView
+import android.view.ViewGroup
 import com.google.firebase.analytics.ktx.analytics
 import com.google.firebase.analytics.ktx.logEvent
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.ktx.firestore
 import com.google.firebase.ktx.Firebase
-import android.widget.TextView
-import android.view.ViewGroup
-import java.util.Calendar
-import java.util.Date
-import java.util.TimeZone
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.Timer
 import java.util.TimerTask
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 
 // 🔹 WorkManager trigger function
 fun triggerLogSync(context: android.content.Context) {
@@ -45,6 +50,23 @@ class KioskActivity : AppCompatActivity() {
 
     // 🔹 Room database
     private lateinit var pendingLogDao: PendingLogDao
+
+    // 🔹 Temp values while waiting for photo capture
+    private var pendingEmployeeID: String? = null
+    private var pendingFirstName: String? = null
+    private var pendingLastName: String? = null
+    private var pendingAction: String? = null
+    private var photoFile: File? = null  // ✅ keep reference to actual file
+
+    // 🔹 Permission launcher
+    private val requestCameraPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                startCameraCapture()
+            } else {
+                fail("Camera permission denied.")
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,9 +112,7 @@ class KioskActivity : AppCompatActivity() {
             }
         }
 
-        btnClear.setOnClickListener {
-            pinInput.setText("")
-        }
+        btnClear.setOnClickListener { pinInput.setText("") }
 
         // clock button
         actionButton.setOnClickListener {
@@ -102,7 +122,7 @@ class KioskActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             actionButton.isEnabled = false
-            validateAndLog(pin)
+            validateAndPrepareLog(pin)
         }
 
         // sync button (manual → show dialog)
@@ -119,10 +139,10 @@ class KioskActivity : AppCompatActivity() {
             override fun run() {
                 runOnUiThread {
                     syncEmployees(manual = false)
-                    triggerLogSync(this@KioskActivity) // 🔹 background log sync
+                    triggerLogSync(this@KioskActivity)
                 }
             }
-        }, 30 * 60 * 1000L, 30 * 60 * 1000L) // 30 min
+        }, 30 * 60 * 1000L, 30 * 60 * 1000L)
     }
 
     override fun onDestroy() {
@@ -141,12 +161,12 @@ class KioskActivity : AppCompatActivity() {
             }
             .addOnFailureListener { e ->
                 if (manual) {
-                    showErrorDialog("Sync failed: ${e.message}")
+                    showErrorDialog("Sync failed. Check internet connection.\n${e.message}")
                 }
             }
     }
 
-    private fun validateAndLog(pin: String) {
+    private fun validateAndPrepareLog(pin: String) {
         db.collection("employees")
             .whereEqualTo("pin", pin)
             .limit(1)
@@ -168,62 +188,98 @@ class KioskActivity : AppCompatActivity() {
                 val firstName = doc.getString("firstName") ?: ""
                 val lastName = doc.getString("lastName") ?: ""
 
-                decideActionAndWrite(employeeID, firstName, lastName)
+                // 🔹 Look back 2 days for last action
+                val tz = TimeZone.getTimeZone("Asia/Manila")
+                val cal = Calendar.getInstance(tz).apply {
+                    add(Calendar.DAY_OF_YEAR, -2)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val lookbackDate: Date = cal.time
+
+                db.collection("logs")
+                    .whereEqualTo("employeeID", employeeID)
+                    .whereGreaterThanOrEqualTo("timestamp", lookbackDate)
+                    .orderBy("timestamp", Query.Direction.DESCENDING)
+                    .limit(1)
+                    .get()
+                    .addOnSuccessListener { qs2 ->
+                        val lastAction = if (!qs2.isEmpty) qs2.documents[0].getString("action") else null
+                        val nextAction = if (lastAction == null || lastAction == "clock_out") {
+                            "clock_in"
+                        } else {
+                            "clock_out"
+                        }
+
+                        // save employee + action for after photo
+                        pendingEmployeeID = employeeID
+                        pendingFirstName = firstName
+                        pendingLastName = lastName
+                        pendingAction = nextAction
+
+                        // 🔹 Check permission before starting camera
+                        if (ContextCompat.checkSelfPermission(
+                                this,
+                                android.Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+                        ) {
+                            startCameraCapture()
+                        } else {
+                            requestCameraPermission.launch(android.Manifest.permission.CAMERA)
+                        }
+                    }
+                    .addOnFailureListener { e -> fail("Read last log failed: ${e.message}") }
             }
             .addOnFailureListener { e -> fail("Employee lookup failed: ${e.message}") }
     }
 
-    private fun decideActionAndWrite(employeeID: String, firstName: String, lastName: String) {
-        // Asia/Manila start-of-day
-        val tz = TimeZone.getTimeZone("Asia/Manila")
-        val cal = Calendar.getInstance(tz).apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val startOfDay: Date = cal.time
-
-        db.collection("logs")
-            .whereEqualTo("employeeID", employeeID)
-            .whereGreaterThanOrEqualTo("timestamp", startOfDay)
-            .orderBy("timestamp", Query.Direction.DESCENDING)
-            .limit(1)
-            .get()
-            .addOnSuccessListener { qs ->
-                val lastAction = if (!qs.isEmpty) qs.documents[0].getString("action") else null
-                val nextAction = if (lastAction == "clock_in") "clock_out" else "clock_in"
-                writeLog(employeeID, firstName, lastName, nextAction)
-            }
-            .addOnFailureListener { e -> fail("Read last log failed: ${e.message}") }
+    // 🔹 Launch camera intent
+    private fun startCameraCapture() {
+        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val storageDir = getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES)
+        val file = File(storageDir, "PHOTO_${timeStamp}.jpg")
+        photoFile = file  // ✅ keep file reference
+        val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+        takePicture.launch(uri)
     }
 
-    // 🔹 Now writes to Room instead of Firestore directly
-    private fun writeLog(employeeID: String, firstName: String, lastName: String, action: String) {
-        lifecycleScope.launch {
-            val log = PendingLogEntity(
-                employeeID = employeeID,
-                action = action,
-                timestamp = System.currentTimeMillis(),
-                localPhotoPath = null,  // will fill when we add camera
-                synced = false
-            )
-            pendingLogDao.insert(log)
+    private val takePicture =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+            if (success) {
+                photoFile?.let { file ->
+                    // 🔹 resize to 640x480 if needed
+                    ImageUtils.resizeImageIfNeeded(file)
 
-            runOnUiThread {
-                analytics.logEvent("clock_action") {
-                    param("employeeID", employeeID)
-                    param("action", action)
+                    val log = PendingLogEntity(
+                        employeeID = pendingEmployeeID ?: "",
+                        action = pendingAction ?: "clock_in",
+                        timestamp = System.currentTimeMillis(),
+                        localPhotoPath = file.absolutePath,  // ✅ absolute path
+                        synced = false
+                    )
+                    lifecycleScope.launch { pendingLogDao.insert(log) }
+
+                    runOnUiThread {
+                        analytics.logEvent("clock_action") {
+                            param("employeeID", pendingEmployeeID ?: "")
+                            param("action", pendingAction ?: "clock_in")
+                        }
+                        pinInput.setText("")
+                        actionButton.isEnabled = true
+                        showActionDialog(
+                            pendingFirstName ?: "",
+                            pendingLastName ?: "",
+                            pendingAction ?: "clock_in"
+                        )
+                        triggerLogSync(this) // optional auto sync
+                    }
                 }
-                pinInput.setText("")
-                actionButton.isEnabled = true
-                showActionDialog(firstName, lastName, action)
-
-                // 🔹 trigger sync right after log (optional)
-                triggerLogSync(this@KioskActivity)
+            } else {
+                fail("Photo capture canceled.")
             }
         }
-    }
 
     private fun showActionDialog(firstName: String, lastName: String, action: String) {
         val name = listOf(firstName, lastName).filter { it.isNotBlank() }
