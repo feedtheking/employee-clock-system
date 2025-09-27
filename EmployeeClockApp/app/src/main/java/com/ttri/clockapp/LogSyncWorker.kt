@@ -26,6 +26,7 @@ class LogSyncWorker(appContext: Context, workerParams: WorkerParameters) :
 
             for (log in pendingLogs) {
                 var photoURL: String? = null
+                var storagePath: String? = null
 
                 // 🔹 Upload photo if exists
                 if (!log.localPhotoPath.isNullOrEmpty()) {
@@ -37,8 +38,7 @@ class LogSyncWorker(appContext: Context, workerParams: WorkerParameters) :
                                 timeZone = TimeZone.getTimeZone("Asia/Manila")
                             }.format(Date(log.timestamp))
 
-                            val storagePath =
-                                "logs/${log.employeeID}/$monthPath/${log.timestamp}.jpg"
+                            storagePath = "logs/${log.employeeID}/$monthPath/${log.timestamp}.jpg"
 
                             println("📸 Uploading photo → $storagePath")
                             val storageRef = storage.reference.child(storagePath)
@@ -69,8 +69,15 @@ class LogSyncWorker(appContext: Context, workerParams: WorkerParameters) :
                     "timestamp" to Date(log.timestamp) // ✅ Firestore Timestamp
                 )
 
-                if (photoURL != null) {
-                    data[if (log.action == "clock_in") "photoIn" else "photoOut"] = photoURL
+                // Add both URL + Path fields
+                if (photoURL != null && storagePath != null) {
+                    if (log.action == "clock_in") {
+                        data["photoIn"] = photoURL
+                        data["photoInPath"] = storagePath
+                    } else if (log.action == "clock_out") {
+                        data["photoOut"] = photoURL
+                        data["photoOutPath"] = storagePath
+                    }
                 }
 
                 try {
