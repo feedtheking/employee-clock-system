@@ -16,6 +16,7 @@ const LogsPage = () => {
   const [includePhotos, setIncludePhotos] = useState(false);
   const [employees, setEmployees] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [showInlinePhotos, setShowInlinePhotos] = useState(false);
 
   const months = [
     { value: 1, label: "January" },
@@ -43,6 +44,12 @@ const LogsPage = () => {
     };
     fetchStores();
   }, []);
+
+  useEffect(() => {
+    if (!includePhotos) {
+      setShowInlinePhotos(false);
+    }
+  }, [includePhotos]);
 
   const fetchLogs = async () => {
     try {
@@ -84,19 +91,10 @@ const LogsPage = () => {
       );
       const logSnap = await getDocs(logQ);
 
-      const allLogs = logSnap.docs.map((doc) => {
-        const data = doc.data();
-        return includePhotos
-          ? { id: doc.id, ...data } // include photoURL
-          : {
-              id: doc.id,
-              employeeID: data.employeeID,
-              action: data.action,
-              timestamp: data.timestamp,
-              // photoURL omitted
-            };
-      });
-
+      const allLogs = logSnap.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
 
       // Filter logs to employees of this store
       const filteredLogs = allLogs.filter((log) =>
@@ -104,9 +102,50 @@ const LogsPage = () => {
       );
 
       setLogs(filteredLogs);
+      setShowInlinePhotos(includePhotos);
     } catch (err) {
       console.error("Error fetching logs:", err);
     }
+  };
+
+  const getPhotoUrl = (log, type) => {
+    if (!log) return "";
+    if (type === "in") {
+      if (log.action === "clock_in") {
+        return log.photoIn || log.photoURL || "";
+      }
+      return log.photoIn || "";
+    }
+    if (type === "out") {
+      if (log.action === "clock_out") {
+        return log.photoOut || log.photoURL || "";
+      }
+      return log.photoOut || "";
+    }
+    return "";
+  };
+
+  const renderPhotoCell = (photoUrl, altText) => {
+    if (!photoUrl) {
+      return <td />;
+    }
+
+    const shouldShowImage = includePhotos && showInlinePhotos;
+
+    return (
+      <td>
+        {shouldShowImage && (
+          <img
+            src={photoUrl}
+            alt={altText}
+            style={{ width: "50px", display: "block", marginBottom: "4px" }}
+          />
+        )}
+        <a href={photoUrl} target="_blank" rel="noopener noreferrer">
+          view image
+        </a>
+      </td>
+    );
   };
 
   const exportCSV = () => {
@@ -147,7 +186,9 @@ const LogsPage = () => {
 
         let row = `${emp.employeeID},${emp.firstName},${emp.lastName},${emp.store},${inTime},${outTime}`;
         if (includePhotos) {
-          row += `,${clockIn?.photoURL || ""},${clockOut?.photoURL || ""}`;
+          const inPhoto = getPhotoUrl(clockIn, "in");
+          const outPhoto = getPhotoUrl(clockOut, "out");
+          row += `,${inPhoto || ""},${outPhoto || ""}`;
         }
         csv += row + "\n";
       }
@@ -228,12 +269,8 @@ const LogsPage = () => {
                     <tr>
                       <th>Clock In</th>
                       <th>Clock Out</th>
-                      {includePhotos && (
-                        <>
-                          <th>Photo In</th>
-                          <th>Photo Out</th>
-                        </>
-                      )}
+                      <th>Photo In</th>
+                      <th>Photo Out</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -253,27 +290,13 @@ const LogsPage = () => {
                                 ? clockOut.timestamp.toDate().toISOString().replace("T", " ").substring(0, 19)
                                 : ""}
                             </td>
-                            {includePhotos && (
-                              <>
-                                <td>
-                                  {clockIn.photoURL && (
-                                    <img
-                                      src={clockIn.photoURL}
-                                      alt="in"
-                                      style={{ width: "50px" }}
-                                    />
-                                  )}
-                                </td>
-                                <td>
-                                  {clockOut?.photoURL && (
-                                    <img
-                                      src={clockOut.photoURL}
-                                      alt="out"
-                                      style={{ width: "50px" }}
-                                    />
-                                  )}
-                                </td>
-                              </>
+                            {renderPhotoCell(
+                              getPhotoUrl(clockIn, "in"),
+                              "Clock-in photo"
+                            )}
+                            {renderPhotoCell(
+                              getPhotoUrl(clockOut, "out"),
+                              "Clock-out photo"
                             )}
                           </tr>
                         );
@@ -290,3 +313,4 @@ const LogsPage = () => {
 };
 
 export default LogsPage;
+

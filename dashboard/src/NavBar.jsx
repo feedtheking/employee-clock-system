@@ -31,6 +31,7 @@ const NavBar = ({ onLogout }) => {
         <Link to="/" style={linkStyle}>Home</Link>
         <Link to="/employees" style={linkStyle}>Employees</Link>
         <Link to="/logs" style={linkStyle}>Logs</Link>
+        <Link to="/cleanup-page" style={linkStyle}>Cleanup</Link>
       </div>
       <button onClick={handleLogout}>Logout</button>
     </div>

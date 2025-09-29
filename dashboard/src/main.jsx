@@ -7,6 +7,7 @@ import EmployeePage from "./EmployeePage";
 import LogsPage from "./LogsPage";
 import LoginPage from "./LoginPage";
 import NavBar from "./NavBar";
+import CleanupPage from "./CleanupPage";
 
 const App = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -20,6 +21,7 @@ const App = () => {
             <Route path="/" element={<HomePage />} />
             <Route path="/employees" element={<EmployeePage />} />
             <Route path="/logs" element={<LogsPage />} />
+            <Route path="/cleanup-page" element={<CleanupPage />} />
           </Routes>
         </div>
       ) : (
